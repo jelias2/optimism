@@ -48,7 +48,7 @@ type AvgSlidingWindow struct {
 	mux          sync.Mutex
 	bucketSize   time.Duration
 	windowLength time.Duration
-	clock        Clock
+	clock        *AdjustableClock
 	buckets      *lm.Map
 	qty          uint
 	sum          float64
@@ -70,7 +70,9 @@ func NewSlidingWindow(opts ...SlidingWindowOpts) *AvgSlidingWindow {
 		sw.windowLength = 5 * time.Minute
 	}
 	if sw.clock == nil {
-		sw.clock = NewDefaultClock()
+		// TODO: Need to fix clock so it can an interface
+		// Cannot have pointer to an interface, is the issue
+		sw.clock = NewAdjustableClock(time.Now())
 	}
 	return sw
 }
@@ -87,7 +89,7 @@ func WithBucketSize(bucketSize time.Duration) SlidingWindowOpts {
 	}
 }
 
-func WithClock(clock Clock) SlidingWindowOpts {
+func WithClock(clock *AdjustableClock) SlidingWindowOpts {
 	return func(sw *AvgSlidingWindow) {
 		sw.clock = clock
 	}
@@ -189,4 +191,12 @@ func (sw *AvgSlidingWindow) Count() uint {
 
 func (sw *AvgSlidingWindow) GetWindowLength() time.Duration {
 	return sw.windowLength
+}
+
+func (sw *AvgSlidingWindow) SetTime(t time.Time) {
+	sw.clock.Set(t)
+}
+
+func (sw *AvgSlidingWindow) Now() time.Time {
+	return sw.clock.now
 }

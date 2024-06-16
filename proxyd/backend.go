@@ -282,6 +282,15 @@ func WithBlockHeightZeroSlidingWindow(sw *sw.AvgSlidingWindow) BackendOpt {
 	}
 }
 
+func (b *Backend) GetBlockHeightZeroSlidingWindow() *sw.AvgSlidingWindow {
+	return b.blockHeightZeroSlidingWindow
+}
+
+// M
+func (b *Backend) SetBlockHeightZeroSlidingWindow(sw *sw.AvgSlidingWindow) {
+	b.blockHeightZeroSlidingWindow = sw
+}
+
 func WithConsensusReceiptTarget(receiptsTarget string) BackendOpt {
 	return func(b *Backend) {
 		b.receiptsTarget = receiptsTarget
@@ -376,6 +385,9 @@ func (b *Backend) GetBlockHeightZeroSlidingWindowLength() time.Duration {
 
 func (b *Backend) GetBlockHeightZeroSlidingWindowCount() uint {
 	return b.blockHeightZeroSlidingWindow.Count()
+}
+func (b *Backend) GetBlockHeightZeroSlidingWindowAvg() float64 {
+	return b.blockHeightZeroSlidingWindow.Avg()
 }
 
 func (b *Backend) Override(opts ...BackendOpt) {
@@ -707,6 +719,14 @@ func (b *Backend) ErrorRate() (errorRate float64) {
 	// this is to avoid false positives when the backend is just starting up
 	if b.networkRequestsSlidingWindow.Sum() >= 10 {
 		errorRate = b.networkErrorsSlidingWindow.Sum() / b.networkRequestsSlidingWindow.Sum()
+	}
+	return errorRate
+}
+
+// BlockHeightZeroRate returns the error rate of getting block height zero
+func (b *Backend) BlockHeightZeroRate() (errorRate float64) {
+	if b.networkRequestsSlidingWindow.Sum() >= 10 {
+		errorRate = b.blockHeightZeroSlidingWindow.Sum() / b.networkErrorsSlidingWindow.Sum()
 	}
 	return errorRate
 }
