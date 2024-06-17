@@ -231,7 +231,7 @@ func TestBlockHeightZero(t *testing.T) {
 			require.Equal(t, float64(1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowAvg())
 			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 			require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
-			addTimeToBackend("node1", nodes, bg, 200*time.Second)
+			addTimeToBackend("node1", nodes, bg, SlidingWindowLength+time.Second)
 		}
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
@@ -247,7 +247,7 @@ func TestBlockHeightZero(t *testing.T) {
 				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 			} else {
 				// require.Equal(t, uint(i+1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
-				// require.Equal(t, 0, nodes["node2"].backend.GetBlockHeightZeroSlidingWindowCount())
+				require.False(t, nodes["node2"].backend.BlockHeightZeroAboveThreshold())
 				require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 			}
@@ -257,27 +257,26 @@ func TestBlockHeightZero(t *testing.T) {
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 	})
 
-	t.Run("Test backend does not activate if the ban period expiries", func(t *testing.T) {
+	t.Run("Test Sliding Window Does not increase on non-zero block", func(t *testing.T) {
 		reset()
-
-		// delay := nodes["node2"].backend.GetBlockHeightZeroSlidingWindowLength() / 2
-		overrideBlock("node2", "latest", "0x0")
-		for i := 0; i < 10; i++ {
-			// require.Equal(t, uint(i), nodes["node2"].backend.GetBlockHeightZeroSlidingWindowCount())
-			require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend), "Expected Node2 Not to be Banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
-			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend), "Expected Node1 Not to be Banned on interation %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
+		for i := 1; i < 10; i++ {
+			if i%2 == 0 {
+				overrideBlock("node1", "latest", "0x0")
+			} else {
+				overrideBlock("node1", "latest", "0x101")
+			}
 			update()
-			// time.Sleep(time.Duration(banPeriod))
+			require.Equal(t, uint(i/2), nodes["node1"].backend.GetBlockHeightZeroSlidingWindow().Count())
+			require.Equal(t, uint(0), nodes["node2"].backend.GetBlockHeightZeroSlidingWindow().Count())
+
+			addTimeToBackend("node1", nodes, bg, 3*time.Second)
+			addTimeToBackend("node2", nodes, bg, 3*time.Second)
 		}
-		// time.Sleep(delay)
-		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
-		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 	})
 
 	t.Run("Test Backend BlockHeight Activates then Deactivates", func(t *testing.T) {
 		reset()
-
-		overrideBlock("node2", "latest", "0x0")
+		overrideBlock("node1", "latest", "0x0")
 		for i := 0; i < 10; i++ {
 			update()
 			if i > 4 {
