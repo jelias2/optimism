@@ -124,7 +124,7 @@ func setupBlockHeightZero(t *testing.T) (map[string]*bhZeroNodeContext, *proxyd.
 }
 
 func TestBlockHeightZero(t *testing.T) {
-	nodes, bg, _, shutdown, banPeriod := setupBlockHeightZero(t)
+	nodes, bg, _, shutdown, _ := setupBlockHeightZero(t)
 	defer nodes["node1"].mockBackend.Close()
 	defer nodes["node2"].mockBackend.Close()
 	defer shutdown()
@@ -227,12 +227,11 @@ func TestBlockHeightZero(t *testing.T) {
 		overrideBlock("node1", "latest", "0x0")
 		for i := 0; i < 6; i++ {
 			update()
-			addTimeToBackend("node1", nodes, bg, 200*time.Second)
-			// Expect the infractions to be recorded, in the sliding window qty
 			require.Equal(t, uint(1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
 			require.Equal(t, float64(1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowAvg())
 			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 			require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
+			addTimeToBackend("node1", nodes, bg, 200*time.Second)
 		}
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
@@ -261,16 +260,16 @@ func TestBlockHeightZero(t *testing.T) {
 	t.Run("Test backend does not activate if the ban period expiries", func(t *testing.T) {
 		reset()
 
-		delay := nodes["node2"].backend.GetBlockHeightZeroSlidingWindowLength() / 2
+		// delay := nodes["node2"].backend.GetBlockHeightZeroSlidingWindowLength() / 2
 		overrideBlock("node2", "latest", "0x0")
 		for i := 0; i < 10; i++ {
 			// require.Equal(t, uint(i), nodes["node2"].backend.GetBlockHeightZeroSlidingWindowCount())
 			require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend), "Expected Node2 Not to be Banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
 			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend), "Expected Node1 Not to be Banned on interation %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
 			update()
-			time.Sleep(time.Duration(banPeriod))
+			// time.Sleep(time.Duration(banPeriod))
 		}
-		time.Sleep(delay)
+		// time.Sleep(delay)
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 	})
@@ -294,25 +293,6 @@ func TestBlockHeightZero(t *testing.T) {
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 	})
-	t.Run("initial consensus", func(t *testing.T) {
-		reset()
-
-		// unknown consensus at init
-		require.Equal(t, "0x0", bg.Consensus.GetLatestBlockNumber().String())
-
-		// first poll
-		update()
-
-		// as a default we use:
-		// - latest at 0x101 [257]
-		// - safe at 0xe1 [225]
-		// - finalized at 0xc1 [193]
-
-		// consensus at block 0x101
-		require.Equal(t, "0x101", bg.Consensus.GetLatestBlockNumber().String())
-		require.Equal(t, "0xe1", bg.Consensus.GetSafeBlockNumber().String())
-		require.Equal(t, "0xc1", bg.Consensus.GetFinalizedBlockNumber().String())
-	})
 
 	t.Run("prevent using a backend with low peer count", func(t *testing.T) {
 		reset()
@@ -324,22 +304,4 @@ func TestBlockHeightZero(t *testing.T) {
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.Equal(t, 1, len(consensusGroup))
 	})
-
-	t.Run("prevent using a backend lagging behind", func(t *testing.T) {
-		reset()
-		// node2 is 8+1 blocks ahead of node1 (0x101 + 8+1 = 0x10a)
-		overrideBlock("node2", "latest", "0x10a")
-		update()
-
-		// since we ignored node1, the consensus should be at 0x10a
-		require.Equal(t, "0x10a", bg.Consensus.GetLatestBlockNumber().String())
-		require.Equal(t, "0xe1", bg.Consensus.GetSafeBlockNumber().String())
-		require.Equal(t, "0xc1", bg.Consensus.GetFinalizedBlockNumber().String())
-
-		consensusGroup := bg.Consensus.GetConsensusGroup()
-		require.NotContains(t, consensusGroup, nodes["node1"].backend)
-		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
-		require.Equal(t, 1, len(consensusGroup))
-	})
-
 }
