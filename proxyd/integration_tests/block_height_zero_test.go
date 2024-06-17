@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum-optimism/optimism/proxyd"
 	sw "github.com/ethereum-optimism/optimism/proxyd/pkg/avg-sliding-window"
 	ms "github.com/ethereum-optimism/optimism/proxyd/tools/mockserver/handler"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -218,10 +217,6 @@ func TestBlockHeightZero(t *testing.T) {
 			}))
 	}
 
-	overridePeerCount := func(node string, count int) {
-		override(node, "net_peerCount", "", buildResponse(hexutil.Uint64(count).String()))
-	}
-
 	t.Run("Test Backend BlockHeight Zero Does not if the infractions occur outside window", func(t *testing.T) {
 		reset()
 		overrideBlock("node1", "latest", "0x0")
@@ -274,33 +269,52 @@ func TestBlockHeightZero(t *testing.T) {
 		}
 	})
 
-	t.Run("Test Backend BlockHeight Activates then Deactivates", func(t *testing.T) {
+	t.Run("Test Backend is Banned -> not banned as long as good blocks come -> ban", func(t *testing.T) {
 		reset()
 		overrideBlock("node1", "latest", "0x0")
-		for i := 0; i < 10; i++ {
+		// Ban Node 1
+		for i := 0; i < 20; i++ {
 			update()
-			if i > 4 {
-				require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend), "Expected node1 not to be banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
-				require.True(t, bg.Consensus.IsBanned(nodes["node2"].backend), "Expected node2 not to be banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
-			} else {
-				require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend), "Expected node1 Not to be Banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
-				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend), "Expected node2 Not to be Banned on iteration %d. NOTE: THIS PASS WILL NOT PASS IN DEBUG", i)
+			if nodes["node1"].backend.BlockHeightZeroAboveThreshold() {
+				require.True(t, bg.Consensus.IsBanned(nodes["node1"].backend))
+				break
 			}
+			addTimeToBackend("node1", nodes, bg, 1*time.Second)
 		}
-		overrideBlock("node2", "latest", "0x1")
-		bg.Consensus.Unban(nodes["node2"].backend)
-		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
-		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
+
+		// Unban, and start seeing good blocks = no ban
+		bg.Consensus.Unban(nodes["node1"].backend)
+		overrideBlock("node1", "latest", "0x101")
+		for i := 0; i < 5; i++ {
+			update()
+			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
+			addTimeToBackend("node1", nodes, bg, 1*time.Second)
+		}
+
+		// See a bad block, and sliding window above threshold -> ban
+		overrideBlock("node1", "latest", "0x0")
+		update()
+		if nodes["node1"].backend.BlockHeightZeroAboveThreshold() {
+			require.True(t, bg.Consensus.IsBanned(nodes["node1"].backend))
+		}
 	})
 
-	t.Run("prevent using a backend with low peer count", func(t *testing.T) {
+	t.Run("Test that sliding window will return below threshold after time passes", func(t *testing.T) {
 		reset()
-		overridePeerCount("node1", 0)
-		update()
+		overrideBlock("node1", "latest", "0x0")
+		for i := 0; i < 20; i++ {
+			update()
+			if nodes["node1"].backend.BlockHeightZeroAboveThreshold() {
+				require.True(t, bg.Consensus.IsBanned(nodes["node1"].backend))
+				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
+			}
+			addTimeToBackend("node1", nodes, bg, 1*time.Second)
+		}
+		addTimeToBackend("node1", nodes, bg, 50*time.Second)
+		bg.Consensus.Unban(nodes["node1"].backend)
 
-		consensusGroup := bg.Consensus.GetConsensusGroup()
-		require.NotContains(t, consensusGroup, nodes["node1"].backend)
+		update()
+		require.False(t, nodes["node1"].backend.BlockHeightZeroAboveThreshold())
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
-		require.Equal(t, 1, len(consensusGroup))
 	})
 }
