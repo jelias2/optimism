@@ -164,6 +164,7 @@ type Backend struct {
 
 	blockHeightZeroSlidingWindow       *sw.AvgSlidingWindow
 	blockHeightZeroSlidingWindowLength time.Duration
+	maxBlockHeightZeroThreshold        float64
 
 	weight int
 }
@@ -276,6 +277,12 @@ func WithMaxErrorRateThreshold(maxErrorRateThreshold float64) BackendOpt {
 	}
 }
 
+func WithBlockHeightZeroThreshold(maxBlockHeightZeroThreshold float64) BackendOpt {
+	return func(b *Backend) {
+		b.maxBlockHeightZeroThreshold = maxBlockHeightZeroThreshold
+	}
+}
+
 func WithBlockHeightZeroSlidingWindow(sw *sw.AvgSlidingWindow) BackendOpt {
 	return func(b *Backend) {
 		b.blockHeightZeroSlidingWindow = sw
@@ -302,12 +309,6 @@ func WithBlockHeightZeroSlidingWindowLength(time time.Duration) BackendOpt {
 		b.blockHeightZeroSlidingWindowLength = time
 	}
 }
-
-// func WithBlockHeightZeroClock(sw *sw.AvgSlidingWindow) BackendOpt {
-// 	return func(b *Backend) {
-// 		b.blockHeightZeroSlidingWindow = sw
-// 	}
-// }
 
 type indexedReqRes struct {
 	index int
@@ -365,6 +366,7 @@ func NewBackend(
 		// NOTE: default use the block height sliding window 1 min,
 		// we can override later in backend opts
 		blockHeightZeroSlidingWindowLength: 1 * time.Minute,
+		maxBlockHeightZeroThreshold:        0.1,
 	}
 
 	backend.Override(opts...)
@@ -380,7 +382,7 @@ func NewBackend(
 }
 
 func (b *Backend) GetBlockHeightZeroSlidingWindowLength() time.Duration {
-	return b.blockHeightZeroSlidingWindowLength
+	return b.blockHeightZeroSlidingWindow.GetWindowLength()
 }
 
 func (b *Backend) GetBlockHeightZeroSlidingWindowCount() uint {
@@ -388,6 +390,10 @@ func (b *Backend) GetBlockHeightZeroSlidingWindowCount() uint {
 }
 func (b *Backend) GetBlockHeightZeroSlidingWindowAvg() float64 {
 	return b.blockHeightZeroSlidingWindow.Avg()
+}
+
+func (b *Backend) GetBlockHeightZeroThreshold() float64 {
+	return b.maxBlockHeightZeroThreshold
 }
 
 func (b *Backend) Override(opts ...BackendOpt) {
@@ -724,11 +730,18 @@ func (b *Backend) ErrorRate() (errorRate float64) {
 }
 
 // BlockHeightZeroRate returns the error rate of getting block height zero
-func (b *Backend) BlockHeightZeroRate() (errorRate float64) {
-	if b.networkRequestsSlidingWindow.Sum() >= 10 {
-		errorRate = b.blockHeightZeroSlidingWindow.Sum() / b.networkErrorsSlidingWindow.Sum()
+func (b *Backend) BlockHeightZeroErrorRate() (errorRate float64) {
+	seconds := float64(b.GetBlockHeightZeroSlidingWindowLength() / time.Second)
+	infractions := b.GetBlockHeightZeroSlidingWindowCount()
+	var bhZeroErrorRate float64 = 0
+	if infractions != 0 {
+		bhZeroErrorRate = float64(infractions) / seconds
 	}
-	return errorRate
+	return float64(bhZeroErrorRate)
+}
+
+func (b *Backend) BlockHeightZeroAboveThreshold() bool {
+	return b.BlockHeightZeroErrorRate() > b.maxBlockHeightZeroThreshold
 }
 
 // BlockHeightZeroCount returns the amount of infractions in the window

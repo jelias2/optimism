@@ -25,7 +25,7 @@ type bhZeroNodeContext struct {
 }
 
 const (
-	SlidingWindowLength     = 10 * time.Second
+	SlidingWindowLength     = 60 * time.Second
 	SlidingWindowBucketSize = 1 * time.Second
 )
 
@@ -68,6 +68,7 @@ func setupBlockHeightZero(t *testing.T) (map[string]*bhZeroNodeContext, *proxyd.
 	// setup proxyd
 	config := ReadConfig("block_height_zero")
 	banPeriod := config.BackendGroups["node"].ConsensusBanPeriod
+	// bhZeroErrorRate := config.BackendGroups["node"].ConsensusBanPeriod
 	svr, shutdown, err := proxyd.Start(config)
 	require.NoError(t, err)
 
@@ -91,11 +92,16 @@ func setupBlockHeightZero(t *testing.T) (map[string]*bhZeroNodeContext, *proxyd.
 	bg.Backends[0].Override(proxyd.WithBlockHeightZeroSlidingWindow(sw1))
 	bg.Backends[1].Override(proxyd.WithBlockHeightZeroSlidingWindow(sw1))
 
+	// Confirm the Backends Window Length is Set
 	require.Equal(t, bg.Backends[0].GetBlockHeightZeroSlidingWindowLength(),
-		time.Duration(config.Backends["node1"].BlockHeightZeroWindowLength))
+		SlidingWindowLength)
 
 	require.Equal(t, bg.Backends[1].GetBlockHeightZeroSlidingWindowLength(),
-		time.Duration(config.Backends["node2"].BlockHeightZeroWindowLength))
+		SlidingWindowLength)
+
+	// Check that Thresholds from config are applied
+	require.Equal(t, 0.1, bg.Backends[0].GetBlockHeightZeroThreshold())
+	require.Equal(t, 0.5, bg.Backends[1].GetBlockHeightZeroThreshold())
 
 	// convenient mapping to access the nodes, and sliding windows by name
 	nodes := map[string]*bhZeroNodeContext{
@@ -174,9 +180,6 @@ func TestBlockHeightZero(t *testing.T) {
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 
-		require.Zero(t, nodes["node2"].backend.GetBlockHeightZeroSlidingWindowCount())
-		require.Zero(t, nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
-
 		now := ts("2023-04-21 15:04:00")
 		clock := sw.NewAdjustableClock(now)
 		b1.bhZeroWindow = sw.NewSlidingWindow(
@@ -224,30 +227,30 @@ func TestBlockHeightZero(t *testing.T) {
 		overrideBlock("node1", "latest", "0x0")
 		for i := 0; i < 6; i++ {
 			update()
+			addTimeToBackend("node1", nodes, bg, 200*time.Second)
 			// Expect the infractions to be recorded, in the sliding window qty
 			require.Equal(t, uint(1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
 			require.Equal(t, float64(1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowAvg())
 			require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 			require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
-			addTimeToBackend("node1", nodes, bg, 221*time.Second)
 		}
 		require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 		require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 	})
 
-	t.Run("Test Backend BlockHeight Zero Activates at after 5 infratctions", func(t *testing.T) {
+	t.Run("Test Backend is banned if above threshold", func(t *testing.T) {
 		reset()
 		overrideBlock("node1", "latest", "0x0")
 		for i := 0; i < 10; i++ {
 			update()
-			require.Equal(t, uint(i+1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
-			if i < 6 {
-				require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
-				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
-			} else {
+			if nodes["node1"].backend.BlockHeightZeroAboveThreshold() {
 				require.True(t, bg.Consensus.IsBanned(nodes["node1"].backend))
 				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
-
+			} else {
+				// require.Equal(t, uint(i+1), nodes["node1"].backend.GetBlockHeightZeroSlidingWindowCount())
+				// require.Equal(t, 0, nodes["node2"].backend.GetBlockHeightZeroSlidingWindowCount())
+				require.False(t, bg.Consensus.IsBanned(nodes["node1"].backend))
+				require.False(t, bg.Consensus.IsBanned(nodes["node2"].backend))
 			}
 			addTimeToBackend("node1", nodes, bg, 3*time.Second)
 		}

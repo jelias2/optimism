@@ -123,6 +123,7 @@ func Start(config *Config) (*Server, func(), error) {
 		if config.BackendOptions.MaxErrorRateThreshold > 0 {
 			opts = append(opts, WithMaxErrorRateThreshold(config.BackendOptions.MaxErrorRateThreshold))
 		}
+
 		if cfg.MaxRPS != 0 {
 			opts = append(opts, WithMaxRPS(cfg.MaxRPS))
 		}
@@ -174,6 +175,10 @@ func Start(config *Config) (*Server, func(), error) {
 		}
 		opts = append(opts, WithConsensusReceiptTarget(receiptsTarget))
 		opts = append(opts, WithBlockHeightZeroSlidingWindowLength(time.Duration(cfg.BlockHeightZeroWindowLength)))
+
+		if cfg.BlockHeightZeroErrorRateThreshold > 0 {
+			opts = append(opts, WithBlockHeightZeroThreshold(cfg.BlockHeightZeroErrorRateThreshold))
+		}
 
 		back := NewBackend(name, rpcURL, wsURL, rpcRequestSemaphore, opts...)
 		backendNames = append(backendNames, name)

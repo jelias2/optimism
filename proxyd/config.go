@@ -104,8 +104,8 @@ type BackendConfig struct {
 	ConsensusForcedCandidate    bool   `toml:"consensus_forced_candidate"`
 	ConsensusReceiptsTarget     string `toml:"consensus_receipts_target"`
 
-	BlockHeightZeroWindowLength        TOMLDuration `toml:"block_height_zero_window_length"`
-	BlockHeightZeroInfractionThreshold int          `toml:"block_height_zero_infraction_threshold"`
+	BlockHeightZeroWindowLength       TOMLDuration `toml:"block_height_zero_window_length"`
+	BlockHeightZeroErrorRateThreshold float64      `toml:"block_height_zero_infraction_threshold"`
 }
 
 type BackendsConfig map[string]*BackendConfig
